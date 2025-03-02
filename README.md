@@ -1,4 +1,5 @@
 # EMQX MCP Server
+[![smithery badge](https://smithery.ai/badge/@Benniu/emqx-mcp-server)](https://smithery.ai/server/@Benniu/emqx-mcp-server)
 
 A [Model Context Protocol (MCP)](https://www.anthropic.com/news/model-context-protocol) server implementation that provides EMQX MQTT broker interaction.
 Enabling MCP clients to interact with the MQTT clusters on [EMQX Cloud](https://www.emqx.com/en/cloud/serverless-mqtt) or self-hosted clusters
@@ -76,6 +77,14 @@ Before using the EMQX MCP Server tools, you need to set up an EMQX cluster with 
 -   Follow installation instructions at [EMQX Platform](https://www.emqx.com/en/try?tab=self-managed)
 
 ## Running locally with the Claude Desktop App
+
+### Installing via Smithery
+
+To install emqx-mcp-server for Claude Desktop automatically via [Smithery](https://smithery.ai/server/@Benniu/emqx-mcp-server):
+
+```bash
+npx -y @smithery/cli install @Benniu/emqx-mcp-server --client claude
+```
 
 ### Manual Installation
 
