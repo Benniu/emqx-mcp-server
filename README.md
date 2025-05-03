@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/benniu-emqx-mcp-server-badge.png)](https://mseep.ai/app/benniu-emqx-mcp-server)
+
 # EMQX MCP Server
 [![smithery badge](https://smithery.ai/badge/@Benniu/emqx-mcp-server)](https://smithery.ai/server/@Benniu/emqx-mcp-server)
 
