@@ -1,36 +1,47 @@
-# Dockerfile for EMQX MCP Server
-# Single-stage build using Alpine-based image with uv pre-installed
-FROM ghcr.io/astral-sh/uv:python3.12-alpine
+# ---- Build stage ----
+FROM ghcr.io/astral-sh/uv:python3.12-alpine AS builder
 
-# Set the working directory in the container
 WORKDIR /app
 
 # Enable bytecode compilation for performance
 ENV UV_COMPILE_BYTECODE=1
 
-# Install build dependencies required for Python packages
+# Install build dependencies required for native extensions
 RUN apk add --no-cache build-base libffi-dev
 
-# Copy dependency files
-COPY pyproject.toml uv.lock LICENSE README.md /app/
+# Copy dependency manifests first for layer caching
+COPY pyproject.toml uv.lock /app/
 
-# Install the project's dependencies using the lockfile
-# Uses cache mount to speed up builds
+# Install dependencies (cached unless manifests change)
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-install-project --no-dev --no-editable
 
-# Add the rest of the project source code and install it
+# Copy source and install the project itself
 COPY src /app/src
-
-# Install the project itself
+COPY LICENSE README.md /app/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable
 
-# Clean up build dependencies to reduce image size
-RUN apk del build-base libffi-dev
+# ---- Runtime stage ----
+FROM python:3.12-alpine AS runtime
 
-# Set environment variable for Python path
+LABEL org.opencontainers.image.title="emqx-mcp-server" \
+      org.opencontainers.image.description="MCP server for EMQX MQTT broker interaction" \
+      org.opencontainers.image.source="https://github.com/Benniu/emqx-mcp-server" \
+      org.opencontainers.image.licenses="Apache-2.0"
+
+# Create non-root user for security
+RUN addgroup -S mcp && adduser -S mcp -G mcp
+
+WORKDIR /app
+
+# Copy only the virtualenv from builder (no build toolchain)
+COPY --from=builder /app/.venv /app/.venv
+
 ENV PATH="/app/.venv/bin:$PATH"
+
+# Switch to non-root user
+USER mcp
 
 # Default command to run the EMQX MCP server
 ENTRYPOINT ["emqx-mcp-server"]

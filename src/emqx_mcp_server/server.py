@@ -8,6 +8,7 @@ tools for clients to use.
 
 import logging
 from mcp.server.fastmcp import FastMCP
+from .config import validate_config
 from .tools.emqx_message_tools import EMQXMessageTools
 from .tools.emqx_client_tools import EMQXClientTools
 
@@ -25,13 +26,16 @@ class EMQXMCPServer:
         """
         self.name = "emqx_mcp_server"
         self.mcp = FastMCP("emqx_mcp_server")
-        
+
         # Configure logging
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
         self.logger = logging.getLogger(self.name)
+
+        # Validate configuration before starting
+        validate_config()
 
         # Register tools for client usage
         self._register_tools()
