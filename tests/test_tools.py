@@ -101,6 +101,42 @@ class TestPublishMqttMessage:
         assert isinstance(result, dict)
         assert "error" in result
 
+    async def test_publish_empty_topic(self, message_tools):
+        """Test that empty string topic returns error."""
+        tools, _ = message_tools
+        publish = tools["publish_mqtt_message"]
+
+        result = await publish({"topic": "", "payload": "hello"})
+        assert "error" in result
+        assert "topic" in result["error"]
+
+    async def test_publish_qos_string(self, message_tools):
+        """Test that QoS as string '1' fails validation (type confusion)."""
+        tools, _ = message_tools
+        publish = tools["publish_mqtt_message"]
+
+        result = await publish({"topic": "test/topic", "payload": "hello", "qos": "1"})
+        assert "error" in result
+        assert "QoS" in result["error"]
+
+    async def test_publish_qos_negative(self, message_tools):
+        """Test that QoS -1 fails validation."""
+        tools, _ = message_tools
+        publish = tools["publish_mqtt_message"]
+
+        result = await publish({"topic": "test/topic", "payload": "hello", "qos": -1})
+        assert "error" in result
+        assert "QoS" in result["error"]
+
+    async def test_publish_qos_none(self, message_tools):
+        """Test that QoS None fails validation."""
+        tools, _ = message_tools
+        publish = tools["publish_mqtt_message"]
+
+        result = await publish({"topic": "test/topic", "payload": "hello", "qos": None})
+        assert "error" in result
+        assert "QoS" in result["error"]
+
 
 class TestListMqttClients:
     """Tests for the list_mqtt_clients tool."""
@@ -161,6 +197,15 @@ class TestGetMqttClient:
         assert "error" in result
         assert "Client ID" in result["error"]
 
+    async def test_get_empty_clientid(self, client_tools):
+        """Test that empty string clientid returns error."""
+        tools, _ = client_tools
+        get_client = tools["get_mqtt_client"]
+
+        result = await get_client({"clientid": ""})
+        assert "error" in result
+        assert "Client ID" in result["error"]
+
 
 class TestKickMqttClient:
     """Tests for the kick_mqtt_client tool."""
@@ -180,5 +225,14 @@ class TestKickMqttClient:
         kick = tools["kick_mqtt_client"]
 
         result = await kick({})
+        assert "error" in result
+        assert "Client ID" in result["error"]
+
+    async def test_kick_empty_clientid(self, client_tools):
+        """Test that empty string clientid returns error."""
+        tools, _ = client_tools
+        kick = tools["kick_mqtt_client"]
+
+        result = await kick({"clientid": ""})
         assert "error" in result
         assert "Client ID" in result["error"]

@@ -8,6 +8,7 @@ It handles authentication, request formatting, and response processing.
 import httpx
 import base64
 import logging
+from urllib.parse import quote
 from .config import EMQXConfig, load_config
 
 DEFAULT_TIMEOUT = 30
@@ -44,7 +45,10 @@ class EMQXClient:
         if 200 <= response.status_code < 300:
             if response.status_code == 204:
                 return {}
-            return response.json()
+            try:
+                return response.json()
+            except ValueError:
+                return {}
         error_msg = f"EMQX API error: {response.status_code} - {response.text}"
         self.logger.error(error_msg)
         return {"error": error_msg}
@@ -94,10 +98,6 @@ class EMQXClient:
             return {"error": error_msg}
         except httpx.ConnectError as e:
             error_msg = f"Connection error: {e}"
-            self.logger.error(error_msg)
-            return {"error": error_msg}
-        except httpx.HTTPStatusError as e:
-            error_msg = f"HTTP error: {e.response.status_code} - {e.response.text}"
             self.logger.error(error_msg)
             return {"error": error_msg}
         except httpx.HTTPError as e:
@@ -158,7 +158,7 @@ class EMQXClient:
             dict: Response from the EMQX API containing client data or error information
         """
         self.logger.info(f"Retrieving information for client ID: {clientid}")
-        return await self._request("GET", f"/clients/{clientid}")
+        return await self._request("GET", f"/clients/{quote(clientid, safe='')}")
 
     async def kick_client(self, clientid: str) -> dict:
         """
@@ -171,7 +171,7 @@ class EMQXClient:
             dict: Success confirmation or error information
         """
         self.logger.info(f"Kicking out client with ID: {clientid}")
-        result = await self._request("DELETE", f"/clients/{clientid}")
-        if not result and "error" not in result:
+        result = await self._request("DELETE", f"/clients/{quote(clientid, safe='')}")
+        if "error" not in result:
             return {"success": True, "message": f"Client {clientid} has been disconnected"}
         return result

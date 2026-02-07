@@ -13,9 +13,9 @@ from ..emqx_client import EMQXClient
 
 class EMQXMessageTools:
 
-    def __init__(self, logger: logging.Logger):
+    def __init__(self, logger: logging.Logger, emqx_client: EMQXClient | None = None):
         self.logger = logger
-        self.emqx_client = EMQXClient(logger)
+        self.emqx_client = emqx_client or EMQXClient(logger)
 
     def register_tools(self, mcp: FastMCP) -> None:
         """Register EMQX Publish tools."""

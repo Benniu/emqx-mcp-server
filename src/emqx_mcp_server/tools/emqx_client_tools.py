@@ -10,6 +10,8 @@ import logging
 from mcp.server.fastmcp import FastMCP
 from ..emqx_client import EMQXClient
 
+
+
 _LIST_OPTIONAL_PARAMS = (
     "node", "clientid", "username", "ip_address", "conn_state",
     "clean_start", "proto_ver", "like_clientid", "like_username",
@@ -19,9 +21,9 @@ _LIST_OPTIONAL_PARAMS = (
 
 class EMQXClientTools:
 
-    def __init__(self, logger: logging.Logger):
+    def __init__(self, logger: logging.Logger, emqx_client: EMQXClient | None = None):
         self.logger = logger
-        self.emqx_client = EMQXClient(logger)
+        self.emqx_client = emqx_client or EMQXClient(logger)
 
     def register_tools(self, mcp: FastMCP) -> None:
         """Register EMQX Client management tools."""

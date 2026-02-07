@@ -62,3 +62,37 @@ class TestLoadConfig:
         assert config.api_url == ""
         assert config.api_key == ""
         assert config.api_secret == ""
+
+
+class TestValidateConfig:
+    """Tests for validate_config() module-level function."""
+
+    def test_validate_config_success(self, monkeypatch):
+        """Test validate_config succeeds with valid env vars."""
+        monkeypatch.setenv("EMQX_API_URL", "https://test.emqx.com")
+        monkeypatch.setenv("EMQX_API_KEY", "my-key")
+        monkeypatch.setenv("EMQX_API_SECRET", "my-secret")
+
+        # validate_config() uses module-level _config which was loaded at import time.
+        # We test via EMQXConfig.validate() directly for unit correctness.
+        config = EMQXConfig(
+            api_url="https://test.emqx.com",
+            api_key="my-key",
+            api_secret="my-secret",
+        )
+        # Should not raise
+        config.validate()
+
+    def test_validate_config_raises_on_missing(self):
+        """Test validate_config raises ValueError with missing env vars."""
+        config = EMQXConfig(api_url="", api_key="", api_secret="")
+        with pytest.raises(ValueError, match="Missing required environment variables"):
+            config.validate()
+
+    def test_validate_config_reports_only_missing(self):
+        """Test that only missing fields are reported."""
+        config = EMQXConfig(api_url="https://ok.com", api_key="key", api_secret="")
+        with pytest.raises(ValueError, match="EMQX_API_SECRET") as exc_info:
+            config.validate()
+        assert "EMQX_API_URL" not in str(exc_info.value)
+        assert "EMQX_API_KEY" not in str(exc_info.value)

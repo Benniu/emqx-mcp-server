@@ -7,8 +7,10 @@ tools for clients to use.
 """
 
 import logging
+from contextlib import asynccontextmanager
 from mcp.server.fastmcp import FastMCP
 from .config import validate_config
+from .emqx_client import EMQXClient
 from .tools.emqx_message_tools import EMQXMessageTools
 from .tools.emqx_client_tools import EMQXClientTools
 
@@ -21,11 +23,10 @@ class EMQXMCPServer:
     def __init__(self):
         """
         Initialize the EMQX MCP Server.
-        
+
         Sets up the FastMCP server, configures logging, and registers the necessary tools.
         """
         self.name = "emqx_mcp_server"
-        self.mcp = FastMCP("emqx_mcp_server")
 
         # Configure logging
         logging.basicConfig(
@@ -37,17 +38,30 @@ class EMQXMCPServer:
         # Validate configuration before starting
         validate_config()
 
+        # Create shared EMQX client
+        self._emqx_client = EMQXClient(self.logger)
+
+        # Create MCP server with lifespan for resource cleanup
+        @asynccontextmanager
+        async def lifespan(server):
+            try:
+                yield
+            finally:
+                await self._emqx_client.close()
+
+        self.mcp = FastMCP("emqx_mcp_server", lifespan=lifespan)
+
         # Register tools for client usage
         self._register_tools()
 
     def _register_tools(self):
         # Register message tools
-        emqx_message_tools = EMQXMessageTools(self.logger)
+        emqx_message_tools = EMQXMessageTools(self.logger, self._emqx_client)
         emqx_message_tools.register_tools(self.mcp)
         self.logger.info("EMQX message tools registered")
-        
+
         # Register client tools
-        emqx_client_tools = EMQXClientTools(self.logger)
+        emqx_client_tools = EMQXClientTools(self.logger, self._emqx_client)
         emqx_client_tools.register_tools(self.mcp)
         self.logger.info("EMQX client tools registered")
 

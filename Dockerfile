@@ -43,5 +43,9 @@ ENV PATH="/app/.venv/bin:$PATH"
 # Switch to non-root user
 USER mcp
 
+# Verify the server process is alive
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD pgrep -f emqx-mcp-server || exit 1
+
 # Default command to run the EMQX MCP server
 ENTRYPOINT ["emqx-mcp-server"]
