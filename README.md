@@ -24,6 +24,13 @@ Enabling MCP clients to interact with the MQTT clusters on [EMQX Cloud](https://
 -   Message Retention: Option to persist messages for new subscribers
 -   Custom Payloads: Support for any message content format
 
+### MQTT Topic Subscription (SSE)
+
+-   Real-time Subscription: Subscribe to MQTT topics via Server-Sent Events (SSE)
+-   Duration Control: Configure how long to listen for messages (1-300 seconds)
+-   Message Limiting: Set maximum number of messages to collect per subscription
+-   Automatic Parsing: Messages are automatically parsed from SSE event stream
+
 ## Tools
 
 ### list_mqtt_clients
@@ -60,6 +67,14 @@ Enabling MCP clients to interact with the MQTT clusters on [EMQX Cloud](https://
   - qos (number, optional): Quality of Service level (0, 1, or 2) (default: 0)
   - retain (boolean, optional): Whether to retain the message (default: false)
 
+### subscribe_mqtt_topic
+- Subscribe to an MQTT topic via SSE on EMQX Cloud and collect messages for a specified duration
+- Inputs:
+  - topic (string, required): MQTT topic to subscribe to
+  - duration (number, optional): How long to listen in seconds (1-300, default: 30)
+  - max_messages (number, optional): Maximum messages to collect (1-1000, default: 100)
+- Returns: Object containing topic, message_count, and messages array
+
 ## Setup EMQX Cluster
 
 Before using the EMQX MCP Server tools, you need to set up an EMQX cluster with properly configured API Key and client authentication. There are several options:
@@ -79,6 +94,8 @@ Before using the EMQX MCP Server tools, you need to set up an EMQX cluster with 
 3.  Self-hosted EMQX Platform:
 -   Download and deploy EMQX Platform locally
 -   Follow installation instructions at [EMQX Platform](https://www.emqx.com/en/try?tab=self-managed)
+
+> **Note:** The `subscribe_mqtt_topic` tool uses the SSE (Server-Sent Events) endpoint, which is available on EMQX Cloud deployments. Not all self-hosted EMQX deployments support the SSE subscribe endpoint.
 
 ## Running locally with the Claude Desktop App
 
@@ -227,7 +244,25 @@ The poem I sent was:
 Is there anything else you'd like to do with your MQTT broker?
 ```
 
-User: 
+User:
+```
+Please subscribe to the topic 'sensor/temperature' for 10 seconds and show me the messages.
+```
+
+LLM:
+```
+I'll subscribe to the topic 'sensor/temperature' for 10 seconds to collect messages.
+...
+I received 3 messages from topic 'sensor/temperature' during the 10-second subscription:
+
+1. {"temperature": 23.5, "unit": "celsius", "timestamp": "2025-03-02T10:00:01Z"}
+2. {"temperature": 23.6, "unit": "celsius", "timestamp": "2025-03-02T10:00:04Z"}
+3. {"temperature": 23.4, "unit": "celsius", "timestamp": "2025-03-02T10:00:07Z"}
+
+Would you like to subscribe for a longer duration or take any other action?
+```
+
+User:
 ```
 Please kick out the client mqttx_2232bdb1
 ```

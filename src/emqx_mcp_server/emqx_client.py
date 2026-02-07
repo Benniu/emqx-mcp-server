@@ -7,7 +7,9 @@ It handles authentication, request formatting, and response processing.
 
 import httpx
 import base64
+import json
 import logging
+import time
 from urllib.parse import quote
 from .config import EMQXConfig, load_config
 
@@ -175,3 +177,73 @@ class EMQXClient:
         if "error" not in result:
             return {"success": True, "message": f"Client {clientid} has been disconnected"}
         return result
+
+    async def subscribe_topic(
+        self, topic: str, duration: int = 30, max_messages: int = 100
+    ) -> dict:
+        """Subscribe to an MQTT topic via SSE and collect messages.
+
+        Args:
+            topic: The MQTT topic to subscribe to
+            duration: How long to listen in seconds
+            max_messages: Maximum number of messages to collect
+
+        Returns:
+            dict: Collected messages or error information
+        """
+        url = f"{self.api_url}/sse/subscribe"
+        params = {"topic": topic}
+        headers = {
+            "Authorization": self._get_auth_header()["Authorization"],
+            "Accept": "text/event-stream",
+            "Cache-Control": "no-cache",
+        }
+
+        messages: list[dict] = []
+        start_time = time.monotonic()
+
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(None)) as sse_client:
+                async with sse_client.stream(
+                    "GET", url, params=params, headers=headers
+                ) as response:
+                    if response.status_code != 200:
+                        await response.aread()
+                        error_msg = f"SSE subscribe error: {response.status_code} - {response.text}"
+                        self.logger.error(error_msg)
+                        return {"error": error_msg}
+
+                    async for line in response.aiter_lines():
+                        if time.monotonic() - start_time >= duration:
+                            break
+
+                        if not line.startswith("data:"):
+                            continue
+
+                        data = line[len("data:"):].strip()
+                        if not data:
+                            continue
+
+                        try:
+                            parsed = json.loads(data)
+                        except (json.JSONDecodeError, ValueError):
+                            parsed = {"raw": data}
+
+                        messages.append(parsed)
+
+                        if len(messages) >= max_messages:
+                            break
+
+        except httpx.ConnectError as e:
+            error_msg = f"SSE connection error: {e}"
+            self.logger.error(error_msg)
+            return {"error": error_msg}
+        except httpx.HTTPError as e:
+            error_msg = f"SSE HTTP error: {e}"
+            self.logger.error(error_msg)
+            return {"error": error_msg}
+
+        self.logger.info(
+            f"SSE subscribe completed: {len(messages)} messages from topic '{topic}'"
+        )
+        return {"topic": topic, "message_count": len(messages), "messages": messages}

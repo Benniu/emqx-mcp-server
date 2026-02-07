@@ -236,3 +236,101 @@ class TestKickMqttClient:
         result = await kick({"clientid": ""})
         assert "error" in result
         assert "Client ID" in result["error"]
+
+
+class TestSubscribeMqttTopic:
+    """Tests for the subscribe_mqtt_topic tool."""
+
+    async def test_subscribe_success(self, message_tools):
+        tools, instance = message_tools
+        subscribe = tools["subscribe_mqtt_topic"]
+        instance.emqx_client.subscribe_topic = AsyncMock(
+            return_value={
+                "topic": "t/1",
+                "message_count": 2,
+                "messages": [
+                    {"topic": "t/1", "payload": "hello"},
+                    {"topic": "t/1", "payload": "world"},
+                ],
+            }
+        )
+
+        result = await subscribe({"topic": "t/1"})
+        assert result["topic"] == "t/1"
+        assert result["message_count"] == 2
+
+    async def test_subscribe_missing_topic(self, message_tools):
+        tools, _ = message_tools
+        subscribe = tools["subscribe_mqtt_topic"]
+
+        result = await subscribe({})
+        assert "error" in result
+        assert "topic" in result["error"]
+
+    async def test_subscribe_empty_topic(self, message_tools):
+        tools, _ = message_tools
+        subscribe = tools["subscribe_mqtt_topic"]
+
+        result = await subscribe({"topic": ""})
+        assert "error" in result
+        assert "topic" in result["error"]
+
+    async def test_subscribe_default_params(self, message_tools):
+        tools, instance = message_tools
+        subscribe = tools["subscribe_mqtt_topic"]
+        instance.emqx_client.subscribe_topic = AsyncMock(
+            return_value={"topic": "t", "message_count": 0, "messages": []}
+        )
+
+        await subscribe({"topic": "t"})
+        instance.emqx_client.subscribe_topic.assert_called_once_with(
+            topic="t", duration=30, max_messages=100
+        )
+
+    async def test_subscribe_custom_params(self, message_tools):
+        tools, instance = message_tools
+        subscribe = tools["subscribe_mqtt_topic"]
+        instance.emqx_client.subscribe_topic = AsyncMock(
+            return_value={"topic": "t", "message_count": 0, "messages": []}
+        )
+
+        await subscribe({"topic": "t", "duration": 60, "max_messages": 50})
+        instance.emqx_client.subscribe_topic.assert_called_once_with(
+            topic="t", duration=60, max_messages=50
+        )
+
+    async def test_subscribe_duration_out_of_range(self, message_tools):
+        tools, _ = message_tools
+        subscribe = tools["subscribe_mqtt_topic"]
+
+        result = await subscribe({"topic": "t", "duration": 0})
+        assert "error" in result
+        assert "duration" in result["error"].lower()
+
+        result = await subscribe({"topic": "t", "duration": 301})
+        assert "error" in result
+        assert "duration" in result["error"].lower()
+
+        result = await subscribe({"topic": "t", "duration": -1})
+        assert "error" in result
+        assert "duration" in result["error"].lower()
+
+    async def test_subscribe_max_messages_out_of_range(self, message_tools):
+        tools, _ = message_tools
+        subscribe = tools["subscribe_mqtt_topic"]
+
+        result = await subscribe({"topic": "t", "max_messages": 0})
+        assert "error" in result
+        assert "max_messages" in result["error"].lower()
+
+        result = await subscribe({"topic": "t", "max_messages": 1001})
+        assert "error" in result
+        assert "max_messages" in result["error"].lower()
+
+    async def test_subscribe_invalid_duration_type(self, message_tools):
+        tools, _ = message_tools
+        subscribe = tools["subscribe_mqtt_topic"]
+
+        result = await subscribe({"topic": "t", "duration": "abc"})
+        assert "error" in result
+        assert "duration" in result["error"].lower()

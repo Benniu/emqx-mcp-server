@@ -1,8 +1,11 @@
 """Tests for the EMQXClient module."""
 
+import json
 import httpx
 import pytest
 import respx
+from contextlib import asynccontextmanager
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from emqx_mcp_server.config import EMQXConfig
 from emqx_mcp_server.emqx_client import EMQXClient
@@ -216,3 +219,219 @@ class TestClientLifecycle:
         assert second_http_client is not None
         assert second_http_client is not first_http_client
         assert not second_http_client.is_closed
+
+
+def _make_sse_mock(lines, status_code=200):
+    """Create a mock SSE stream context manager.
+
+    Args:
+        lines: Iterable of SSE lines to yield.
+        status_code: HTTP status code for the response.
+
+    Returns:
+        An async context manager that yields a mock response with aiter_lines.
+    """
+    async def _aiter_lines():
+        for line in lines:
+            yield line
+
+    mock_response = MagicMock()
+    mock_response.status_code = status_code
+    mock_response.aiter_lines = _aiter_lines
+    mock_response.aread = AsyncMock(return_value=b"error body")
+    mock_response.text = "error body"
+
+    @asynccontextmanager
+    async def _stream(*args, **kwargs):
+        yield mock_response
+
+    return _stream
+
+
+class TestSubscribeTopic:
+    """Tests for subscribe_topic()."""
+
+    async def test_subscribe_success(self, async_client):
+        """Mock SSE stream returning 2 data lines with JSON, verify messages collected."""
+        lines = [
+            'data: {"topic":"t/1","payload":"hello"}',
+            'data: {"topic":"t/1","payload":"world"}',
+        ]
+        with patch("httpx.AsyncClient") as MockClient:
+            instance = MockClient.return_value
+            instance.__aenter__ = AsyncMock(return_value=instance)
+            instance.__aexit__ = AsyncMock(return_value=False)
+            instance.stream = _make_sse_mock(lines)
+
+            result = await async_client.subscribe_topic("t/1", duration=5)
+
+        assert result["topic"] == "t/1"
+        assert result["message_count"] == 2
+        assert result["messages"][0] == {"topic": "t/1", "payload": "hello"}
+        assert result["messages"][1] == {"topic": "t/1", "payload": "world"}
+
+    async def test_subscribe_non_json_data(self, async_client):
+        """Mock SSE stream with non-JSON data line, verify fallback to raw."""
+        lines = [
+            "data: not valid json",
+        ]
+        with patch("httpx.AsyncClient") as MockClient:
+            instance = MockClient.return_value
+            instance.__aenter__ = AsyncMock(return_value=instance)
+            instance.__aexit__ = AsyncMock(return_value=False)
+            instance.stream = _make_sse_mock(lines)
+
+            result = await async_client.subscribe_topic("t/1", duration=5)
+
+        assert result["message_count"] == 1
+        assert result["messages"][0] == {"raw": "not valid json"}
+
+    async def test_subscribe_empty_data_lines_skipped(self, async_client):
+        """Mock SSE stream with empty data: lines, verify they're skipped."""
+        lines = [
+            "data: ",
+            "data:",
+            'data: {"topic":"t","payload":"msg"}',
+        ]
+        with patch("httpx.AsyncClient") as MockClient:
+            instance = MockClient.return_value
+            instance.__aenter__ = AsyncMock(return_value=instance)
+            instance.__aexit__ = AsyncMock(return_value=False)
+            instance.stream = _make_sse_mock(lines)
+
+            result = await async_client.subscribe_topic("t", duration=5)
+
+        assert result["message_count"] == 1
+        assert result["messages"][0] == {"topic": "t", "payload": "msg"}
+
+    async def test_subscribe_non_data_lines_ignored(self, async_client):
+        """Mock SSE stream with event:, id:, comment lines, verify only data: parsed."""
+        lines = [
+            "event: message",
+            "id: 123",
+            ": this is a comment",
+            'data: {"topic":"t","payload":"hello"}',
+            "retry: 3000",
+        ]
+        with patch("httpx.AsyncClient") as MockClient:
+            instance = MockClient.return_value
+            instance.__aenter__ = AsyncMock(return_value=instance)
+            instance.__aexit__ = AsyncMock(return_value=False)
+            instance.stream = _make_sse_mock(lines)
+
+            result = await async_client.subscribe_topic("t", duration=5)
+
+        assert result["message_count"] == 1
+        assert result["messages"][0] == {"topic": "t", "payload": "hello"}
+
+    async def test_subscribe_max_messages_limit(self, async_client):
+        """Mock SSE stream with 10 messages, set max_messages=3, verify only 3 collected."""
+        lines = [
+            f'data: {{"topic":"t","payload":"msg{i}"}}'
+            for i in range(10)
+        ]
+        with patch("httpx.AsyncClient") as MockClient:
+            instance = MockClient.return_value
+            instance.__aenter__ = AsyncMock(return_value=instance)
+            instance.__aexit__ = AsyncMock(return_value=False)
+            instance.stream = _make_sse_mock(lines)
+
+            result = await async_client.subscribe_topic("t", duration=60, max_messages=3)
+
+        assert result["message_count"] == 3
+        assert len(result["messages"]) == 3
+        assert result["messages"][2] == {"topic": "t", "payload": "msg2"}
+
+    async def test_subscribe_connection_error(self, async_client):
+        """Mock ConnectError, verify error dict returned."""
+        with patch("httpx.AsyncClient") as MockClient:
+            instance = MockClient.return_value
+            instance.__aenter__ = AsyncMock(return_value=instance)
+            instance.__aexit__ = AsyncMock(return_value=False)
+            instance.stream = MagicMock(side_effect=httpx.ConnectError("connection refused"))
+
+            result = await async_client.subscribe_topic("t/1")
+
+        assert "error" in result
+        assert "SSE connection error" in result["error"]
+
+    async def test_subscribe_http_error(self, async_client):
+        """Mock generic HTTPError, verify error dict returned."""
+        with patch("httpx.AsyncClient") as MockClient:
+            instance = MockClient.return_value
+            instance.__aenter__ = AsyncMock(return_value=instance)
+            instance.__aexit__ = AsyncMock(return_value=False)
+            instance.stream = MagicMock(side_effect=httpx.HTTPError("something failed"))
+
+            result = await async_client.subscribe_topic("t/1")
+
+        assert "error" in result
+        assert "SSE HTTP error" in result["error"]
+
+    async def test_subscribe_non_200_status(self, async_client):
+        """Mock 401 response, verify error dict with status code."""
+        with patch("httpx.AsyncClient") as MockClient:
+            instance = MockClient.return_value
+            instance.__aenter__ = AsyncMock(return_value=instance)
+            instance.__aexit__ = AsyncMock(return_value=False)
+            instance.stream = _make_sse_mock([], status_code=401)
+
+            result = await async_client.subscribe_topic("t/1")
+
+        assert "error" in result
+        assert "401" in result["error"]
+
+    async def test_subscribe_uses_sse_headers(self, async_client):
+        """Verify the request uses Accept: text/event-stream and Cache-Control: no-cache."""
+        lines = []
+        captured_kwargs = {}
+
+        @asynccontextmanager
+        async def capture_stream(*args, **kwargs):
+            captured_kwargs.update(kwargs)
+            async def _aiter_lines():
+                for line in lines:
+                    yield line
+            mock_resp = MagicMock()
+            mock_resp.status_code = 200
+            mock_resp.aiter_lines = _aiter_lines
+            yield mock_resp
+
+        with patch("httpx.AsyncClient") as MockClient:
+            instance = MockClient.return_value
+            instance.__aenter__ = AsyncMock(return_value=instance)
+            instance.__aexit__ = AsyncMock(return_value=False)
+            instance.stream = capture_stream
+
+            await async_client.subscribe_topic("t/1", duration=1)
+
+        headers = captured_kwargs.get("headers", {})
+        assert headers.get("Accept") == "text/event-stream"
+        assert headers.get("Cache-Control") == "no-cache"
+        assert "Content-Type" not in headers
+
+    async def test_subscribe_url_encoding(self, async_client):
+        """Verify topic with special chars is properly passed in query param."""
+        captured_kwargs = {}
+
+        @asynccontextmanager
+        async def capture_stream(*args, **kwargs):
+            captured_kwargs.update(kwargs)
+            async def _aiter_lines():
+                return
+                yield  # make it an async generator
+            mock_resp = MagicMock()
+            mock_resp.status_code = 200
+            mock_resp.aiter_lines = _aiter_lines
+            yield mock_resp
+
+        with patch("httpx.AsyncClient") as MockClient:
+            instance = MockClient.return_value
+            instance.__aenter__ = AsyncMock(return_value=instance)
+            instance.__aexit__ = AsyncMock(return_value=False)
+            instance.stream = capture_stream
+
+            await async_client.subscribe_topic("test/topic#special", duration=1)
+
+        params = captured_kwargs.get("params", {})
+        assert params.get("topic") == "test/topic#special"
